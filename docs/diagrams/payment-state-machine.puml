@@ -1,0 +1,103 @@
+@startuml
+title Ciclo de vida del pago - Motor de Conciliación
+
+skinparam state {
+  BorderColor #444444
+  FontColor #111111
+}
+
+state PENDIENTE     #9ECBFF
+state VALIDADO      #6BA8F0
+state ENVIADO       #FFE08A
+state INCIERTO      #FFCA28
+state LIQUIDADO     #B7E4A7
+state CONCILIADO    #4CAF50
+state RECHAZADO     #F28B82
+state FALLIDO       #E57373
+state DISCREPANCIA  #FFB74D
+state EN_REVERSO    #CE93D8
+state FALLO_REVERSO #FFB74D
+state REVERSADO     #9C6FB5
+state REVERSO_INCIERTO #FFCA28
+state AJUSTE_CONTABLE  #E57373
+
+
+[*] --> PENDIENTE : crear
+
+PENDIENTE --> VALIDADO : validar [monto, cuentas, moneda e impuesto 0.20 % correctos]
+PENDIENTE --> RECHAZADO : rechazar [falla alguna validación]
+
+VALIDADO --> ENVIADO : enviar / registrar envío al banco o red ACH
+
+ENVIADO --> LIQUIDADO : liquidar [banco confirma movimiento]
+ENVIADO --> FALLIDO : rechazarBanco [rechazo explícito del banco]
+ENVIADO --> INCIERTO : marcarIncierto [reintentos agotados sin respuesta]
+
+INCIERTO --> LIQUIDADO : confirmarLiquidacion [archivo de cierre ACH lo incluye]
+INCIERTO --> FALLIDO : confirmarFallo [cierre confirma que no se procesó]
+
+LIQUIDADO --> CONCILIADO : conciliar [Ledger y banco coinciden]
+LIQUIDADO --> DISCREPANCIA : detectarDiscrepancia [montos no cuadran]
+
+DISCREPANCIA --> CONCILIADO : forzarConciliacion [operador] / auditar quién y por qué
+DISCREPANCIA --> EN_REVERSO : reversar [operador]
+
+EN_REVERSO --> REVERSADO : completarReverso
+EN_REVERSO --> FALLO_REVERSO : fallarReverso [error técnico del banco]
+
+FALLO_REVERSO --> EN_REVERSO : reintentarReverso [operador / intentos < 3]
+FALLO_REVERSO --> REVERSO_INCIERTO : agotarReintentos [intentos == 3 o timeout]
+FALLO_REVERSO --> AJUSTE_CONTABLE : cerrarPorImposibilidad [rechazo definitivo ACH / sin fondos]
+
+REVERSO_INCIERTO --> REVERSADO : confirmarReversoACH [archivo de cierre lo incluye]
+REVERSO_INCIERTO --> AJUSTE_CONTABLE : confirmarNoReversado [cierre confirma que sigue liquidado]
+
+RECHAZADO --> [*]
+FALLIDO --> [*]
+CONCILIADO --> [*]
+REVERSADO --> [*]
+AJUSTE_CONTABLE --> [*]
+
+note right of PENDIENTE
+  La idempotencia (Redis) se verifica en la
+  capa de aplicación ANTES de crear el pago.
+  El dominio solo conoce el nacimiento en PENDIENTE.
+end note
+
+note right of ENVIADO
+  Un timeout NO es un rechazo. Los reintentos
+  reutilizan la misma referencia hacia el banco.
+end note
+
+note right of INCIERTO
+  Resultado desconocido: se resuelve solo con
+  evidencia positiva (archivo de cierre ACH).
+end note
+
+note right of FALLO_REVERSO
+  Atención manual con límite estricto (máx. 3 intentos).
+  Cada reintento reutiliza el ID de reverso y se audita.
+end note
+
+note right of REVERSO_INCIERTO
+  Bloquea nuevos intentos de red para evitar
+  duplicidad. Se resuelve con el cierre EOD.
+end note
+
+note right of AJUSTE_CONTABLE
+  detiene el software y dice: "Técnicamente
+   este pago no se puede revertir; contabilidad
+   debe resolver el descuadre"
+end note
+
+legend right
+  | Color | Significado |
+  | <#9ECBFF> | Inicio y validación |
+  | <#FFE08A> | En tránsito con el banco |
+  | <#FFCA28> | Resultado desconocido |
+  | <#4CAF50> | Éxito (final feliz) |
+  | <#F28B82> | Error terminal |
+  | <#FFB74D> | Requiere operador |
+  | <#CE93D8> | Reverso |
+endlegend
+@enduml
