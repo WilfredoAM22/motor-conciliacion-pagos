@@ -16,7 +16,7 @@ Sistema distribuido orientado a eventos diseñado para el procesamiento idempote
 
 ---
 
-## 🏗️ Arquitectura del Sistema (Visión General)
+##  Arquitectura del Sistema (Visión General)
 
 El sistema implementa **Arquitectura Hexagonal (Puertos y Adaptadores)** en cada microservicio. Esto aísla las reglas financieras críticas (el núcleo del dominio) de los detalles de infraestructura como bases de datos, brokers de mensajería o clientes HTTP externos, facilitando las pruebas unitarias puras y la evolución tecnológica.
 
